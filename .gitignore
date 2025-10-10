@@ -1,0 +1,13 @@
+bin/
+obj/
+Properties/
+*.pdb
+*.exe
+.DS_Store
+Thumbs.db
+*.user
+*.userprefs
+*.suo
+.vs/
+*.idea/
+*.zip
