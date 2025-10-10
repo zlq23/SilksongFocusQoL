@@ -23,21 +23,21 @@ public class SilksongFocusQoL : BaseUnityPlugin
             "Settings",
             "EnableAutoMute",
             true,
-            "Mute audio when window loses focus (default: true)"
+            "Mute audio when window loses focus"
         );
 
         configEnableAutoPause = Config.Bind(
             "Settings",
             "EnableAutoPause",
             true,
-            "Pause game when window loses focus (default: true)"
+            "Pause game when window loses focus"
         );
 
         configEnableAutoUnpause = Config.Bind(
             "Settings",
             "EnableAutoUnpause",
             true,
-            "Unpause when focus returns (default: true)"
+            "Unpause when focus returns"
         );
 
         configAutoUnpauseWindow = Config.Bind(
@@ -45,7 +45,7 @@ public class SilksongFocusQoL : BaseUnityPlugin
             "AutoUnpauseWindow",
             3f,
             new ConfigDescription(
-                "Time window to auto-unpause (0-30, default: 3)\n0 = always unpause when focus returns; >0 = only if refocus occurs within this many seconds",
+                "Time window to auto-unpause\n0 = always unpause when focus returns; >0 = only if refocus occurs within this many seconds",
                 new AcceptableValueRange<float>(0f, 30f)
             )
         );
@@ -88,6 +88,7 @@ public class SilksongFocusQoL : BaseUnityPlugin
         private bool wasPausedByMod = false;
         private float focusLostTime = 0f;
         private bool isTrackingTime = false;
+        private Coroutine timeoutCoroutine;
 
         private ConfigEntry<bool> enableAutoPause;
         private ConfigEntry<bool> enableAutoUnpause;
@@ -138,10 +139,23 @@ public class SilksongFocusQoL : BaseUnityPlugin
                         AttemptToPauseGame();
 
                     if (enableAutoUnpause.Value && autoUnpauseWindow.Value > 0)
+                    {
                         isTrackingTime = true;
+                        // Start timeout coroutine to auto-clear tracking
+                        if (timeoutCoroutine != null)
+                            StopCoroutine(timeoutCoroutine);
+                        timeoutCoroutine = StartCoroutine(TimeoutTracking());
+                    }
                 }
                 else
                 {
+                    // Stop timeout coroutine since we got focus back
+                    if (timeoutCoroutine != null)
+                    {
+                        StopCoroutine(timeoutCoroutine);
+                        timeoutCoroutine = null;
+                    }
+
                     if (enableAutoUnpause.Value && wasPausedByMod)
                     {
                         bool shouldUnpause = true;
@@ -151,8 +165,10 @@ public class SilksongFocusQoL : BaseUnityPlugin
                         if (shouldUnpause)
                         {
                             AttemptToUnpauseGame();
-                            wasPausedByMod = false;
                         }
+
+                        // Clear the flag regardless of whether we unpaused or not
+                        wasPausedByMod = false;
                     }
 
                     isTrackingTime = false;
@@ -165,6 +181,16 @@ public class SilksongFocusQoL : BaseUnityPlugin
             {
                 // Silent fail
             }
+        }
+
+        private IEnumerator TimeoutTracking()
+        {
+            // Wait for the auto-unpause window to expire
+            yield return new WaitForSecondsRealtime(autoUnpauseWindow.Value);
+
+            // Time window expired, clear tracking
+            isTrackingTime = false;
+            timeoutCoroutine = null;
         }
 
         private void AttemptToPauseGame()
