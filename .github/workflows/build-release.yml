@@ -17,8 +17,23 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.1
 
+      - name: Find project file
+        id: find-project
+        run: |
+          $projectFile = Get-ChildItem -Recurse -Filter "*.csproj" | Select-Object -First 1 -ExpandProperty FullName
+          $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectFile)
+          echo "project_file=$projectFile" >> $env:GITHUB_OUTPUT
+          echo "project_name=$projectName" >> $env:GITHUB_OUTPUT
+
       - name: Build project
-        run: msbuild "SilksongFocusQoL/SilksongFocusQoL.csproj" /p:Configuration=Release /restore
+        run: msbuild "${{ steps.find-project.outputs.project_file }}" /p:Configuration=Release /restore
+
+      - name: Create ZIP
+        run: |
+          $dllPath = Join-Path (Split-Path "${{ steps.find-project.outputs.project_file }}" -Parent) "bin\Release\net472\${{ steps.find-project.outputs.project_name }}.dll"
+          $zipPath = Join-Path (Split-Path $dllPath -Parent) "${{ steps.find-project.outputs.project_name }}-${{ github.ref_name }}.zip"
+          Write-Host "Zipping $dllPath to $zipPath"
+          Compress-Archive -Path $dllPath -DestinationPath $zipPath
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -26,6 +41,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           body: Automated release
-          files: SilksongFocusQoL/bin/Release/net472/SilksongFocusQoL.dll
+          files: ${{ steps.find-project.outputs.project_name }}/bin/Release/net472/${{ steps.find-project.outputs.project_name }}-${{ github.ref_name }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
