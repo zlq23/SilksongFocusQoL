@@ -21,7 +21,6 @@ jobs:
         id: find-project
         run: |
           $projectFile = Get-ChildItem -Recurse -Filter "*.csproj" | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $projectFile) { Write-Error "No .csproj found!" ; exit 1 }
           $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectFile)
           echo "project_file=$projectFile" >> $env:GITHUB_OUTPUT
           echo "project_name=$projectName" >> $env:GITHUB_OUTPUT
@@ -31,10 +30,8 @@ jobs:
 
       - name: Create ZIP
         run: |
-          $projectDir = Split-Path "${{ steps.find-project.outputs.project_file }}" -Parent
-          $dllPath = Join-Path $projectDir "bin\Release\net472\${{ steps.find-project.outputs.project_name }}.dll"
-          if (-not (Test-Path $dllPath)) { Write-Error "DLL not found at $dllPath"; exit 1 }
-          $zipPath = Join-Path $projectDir "${{ steps.find-project.outputs.project_name }}-${{ github.ref_name }}.zip"
+          $dllPath = Join-Path (Split-Path "${{ steps.find-project.outputs.project_file }}" -Parent) "bin\Release\net472\${{ steps.find-project.outputs.project_name }}.dll"
+          $zipPath = Join-Path (Split-Path $dllPath -Parent) "${{ steps.find-project.outputs.project_name }}-${{ github.ref_name }}.zip"
           Write-Host "Zipping $dllPath to $zipPath"
           Compress-Archive -Path $dllPath -DestinationPath $zipPath
 
