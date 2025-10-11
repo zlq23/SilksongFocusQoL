@@ -11,30 +11,54 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2. Setup MSBuild
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.1
 
+      # 3. Find .csproj file automatically
       - name: Find project file
         id: find-project
         run: |
           $projectFile = Get-ChildItem -Recurse -Filter "*.csproj" | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $projectFile) { Write-Error "No .csproj found!" ; exit 1 }
           $projectName = [System.IO.Path]::GetFileNameWithoutExtension($projectFile)
           echo "project_file=$projectFile" >> $env:GITHUB_OUTPUT
           echo "project_name=$projectName" >> $env:GITHUB_OUTPUT
 
+      # 4. Build the project in Release mode
       - name: Build project
         run: msbuild "${{ steps.find-project.outputs.project_file }}" /p:Configuration=Release /restore
 
+      # 5. Create ZIP of the DLL
       - name: Create ZIP
         run: |
-          $dllPath = Join-Path (Split-Path "${{ steps.find-project.outputs.project_file }}" -Parent) "bin\Release\net472\${{ steps.find-project.outputs.project_name }}.dll"
-          $zipPath = Join-Path (Split-Path $dllPath -Parent) "${{ steps.find-project.outputs.project_name }}-${{ github.ref_name }}.zip"
+          $projectDir = Split-Path "${{ steps.find-project.outputs.project_file }}" -Parent
+          $dllPath = Join-Path $projectDir "bin\Release\net472\${{ steps.find-project.outputs.project_name }}.dll"
+          if (-not (Test-Path $dllPath)) { Write-Error "DLL not found at $dllPath"; exit 1 }
+          $zipPath = "${{ steps.find-project.outputs.project_name }}-${{ github.ref_name }}.zip"
           Write-Host "Zipping $dllPath to $zipPath"
           Compress-Archive -Path $dllPath -DestinationPath $zipPath
 
+      # 6. Verify ZIP was created
+      - name: Verify ZIP file
+        run: |
+          $zipPath = "${{ steps.find-project.outputs.project_name }}-${{ github.ref_name }}.zip"
+          Write-Host "Looking for ZIP at: $zipPath"
+          if (Test-Path $zipPath) {
+              Write-Host "✓ ZIP file found: $zipPath"
+              Write-Host "File size: $((Get-Item $zipPath).Length) bytes"
+          } else {
+              Write-Error "✗ ZIP file not found at: $zipPath"
+              Write-Host "Current directory files:"
+              Get-ChildItem -Name
+              exit 1
+          }
+
+      # 7. Extract release notes from CHANGELOG.md
       - name: Extract release notes from CHANGELOG
         id: changelog
         run: |
@@ -43,13 +67,12 @@ jobs:
           $lines = Get-Content CHANGELOG.md
           $inSection = $false
           $notes = @()
+          
           foreach ($line in $lines) {
-              # Match [vX.X.X] format in your changelog
               if ($line -match "## \[$version\]") { 
                   $inSection = $true
                   continue 
               }
-              # Stop collecting when the next version header is found
               if ($inSection -and $line -match "^## \[") { 
                   break
               }
@@ -57,18 +80,20 @@ jobs:
                   $notes += $line.Trim() 
               }
           }
+          
           if ($notes.Count -eq 0) { 
               Write-Warning "No changelog section found for $version"
-              $releaseNotes = "No release notes available."
+              $releaseNotes = "No release notes available for this version. Please check the CHANGELOG.md for details."
           } else {
               $releaseNotes = $notes -join "`n"
           }
-          # Use proper multiline output format
+          
           $delimiter = "EOF_$(Get-Random)"
           echo "body<<$delimiter" >> $env:GITHUB_OUTPUT
           echo "$releaseNotes" >> $env:GITHUB_OUTPUT
           echo "$delimiter" >> $env:GITHUB_OUTPUT
 
+      # 8. Create GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:

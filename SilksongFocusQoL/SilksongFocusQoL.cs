@@ -101,7 +101,7 @@ public class SilksongFocusQoL : BaseUnityPlugin
 
     private class FocusQoLBehaviour : MonoBehaviour
     {
-        private bool wasPausedByMod = false;       // True only if WE successfully paused the game
+        private bool wasPausedByMod = false;       // True only if the mod successfully paused the game
         private bool wasAlreadyPaused = false;     // True if game was paused before we lost focus
         private float focusLostTime = 0f;          // Time when window lost focus
         private bool isTrackingTime = false;       // True while waiting to auto-unpause
