@@ -11,15 +11,12 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Setup MSBuild
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.1
 
-      # 3. Find .csproj file automatically
       - name: Find project file
         id: find-project
         run: |
@@ -29,11 +26,9 @@ jobs:
           echo "project_file=$projectFile" >> $env:GITHUB_OUTPUT
           echo "project_name=$projectName" >> $env:GITHUB_OUTPUT
 
-      # 4. Build the project in Release mode
       - name: Build project
         run: msbuild "${{ steps.find-project.outputs.project_file }}" /p:Configuration=Release /restore
 
-      # 5. Create ZIP of the DLL
       - name: Create ZIP
         run: |
           $projectDir = Split-Path "${{ steps.find-project.outputs.project_file }}" -Parent
@@ -43,7 +38,6 @@ jobs:
           Write-Host "Zipping $dllPath to $zipPath"
           Compress-Archive -Path $dllPath -DestinationPath $zipPath
 
-      # 6. Extract release notes from CHANGELOG.md (FIXED OUTPUT)
       - name: Extract release notes from CHANGELOG
         id: changelog
         run: |
@@ -70,11 +64,14 @@ jobs:
               Write-Warning "No changelog section found for $version"
               $releaseNotes = "No release notes available."
           } else {
-              $releaseNotes = $notes -join "%0A"  # Use URL-encoded newlines
+              $releaseNotes = $notes -join "`n"
           }
-          echo "body=$releaseNotes" >> $env:GITHUB_OUTPUT
+          # Use proper multiline output format
+          $delimiter = "EOF_$(Get-Random)"
+          echo "body<<$delimiter" >> $env:GITHUB_OUTPUT
+          echo "$releaseNotes" >> $env:GITHUB_OUTPUT
+          echo "$delimiter" >> $env:GITHUB_OUTPUT
 
-      # 7. Create GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
