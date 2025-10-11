@@ -53,9 +53,11 @@ jobs:
           $inSection = $false
           $notes = @()
           foreach ($line in $lines) {
-              if ($line -match "## \[$version\]") { $inSection = $true; continue }
+              # Start collecting when the version header is found, allowing trailing whitespace
+              if ($line -match "## \[$version\]\s*") { $inSection = $true; continue }
+              # Stop collecting when the next version header is found
               if ($line -match "## \[") { $inSection = $false }
-              if ($inSection) { $notes += $line }
+              if ($inSection) { $notes += $line.Trim() }
           }
           if (-not $notes) { Write-Warning "No changelog section found for $version"; $notes = @("No release notes available.") }
           $releaseNotes = $notes -join "`n"
