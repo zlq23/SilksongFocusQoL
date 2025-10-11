@@ -43,24 +43,40 @@ jobs:
           Write-Host "Zipping $dllPath to $zipPath"
           Compress-Archive -Path $dllPath -DestinationPath $zipPath
 
-      # 6. Extract release notes from CHANGELOG.md
+      # 6. Extract release notes from CHANGELOG.md (FIXED)
       - name: Extract release notes from CHANGELOG
         id: changelog
         run: |
           if (-not (Test-Path CHANGELOG.md)) { Write-Error "CHANGELOG.md not found!"; exit 1 }
-          $version = "${GITHUB_REF_NAME}"
+          $version = "${{ github.ref_name }}"
           $lines = Get-Content CHANGELOG.md
           $inSection = $false
           $notes = @()
           foreach ($line in $lines) {
-              # Start collecting when the version header is found, allowing trailing whitespace
-              if ($line -match "## \[$version\]\s*") { $inSection = $true; continue }
+              # Match both [vX.X.X] and vX.X.X formats
+              if ($line -match "## \[?$version\]?\s*-?\s*(.*)") { 
+                  $inSection = $true
+                  # Add the title line if it has text after the version
+                  if ($matches[1] -and $matches[1].Trim()) {
+                      $notes += $matches[1].Trim()
+                  }
+                  continue 
+              }
               # Stop collecting when the next version header is found
-              if ($line -match "## \[") { $inSection = $false }
-              if ($inSection) { $notes += $line.Trim() }
+              if ($inSection -and $line -match "^## \[") { 
+                  $inSection = $false 
+                  break
+              }
+              if ($inSection -and $line.Trim() -ne "") { 
+                  $notes += $line.Trim() 
+              }
           }
-          if (-not $notes) { Write-Warning "No changelog section found for $version"; $notes = @("No release notes available.") }
-          $releaseNotes = $notes -join "`n"
+          if ($notes.Count -eq 0) { 
+              Write-Warning "No changelog section found for $version"
+              $releaseNotes = "No release notes available."
+          } else {
+              $releaseNotes = $notes -join "`n"
+          }
           echo "body=$releaseNotes" >> $env:GITHUB_OUTPUT
 
       # 7. Create GitHub Release
