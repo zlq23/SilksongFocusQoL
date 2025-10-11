@@ -9,7 +9,7 @@
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <DefineConstants>TRACE</DefineConstants>
-    <Version>1.0.0</Version> 
+    <Version>1.0.1</Version> 
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,7 +26,7 @@
     <Reference Include="System.Xml" />
     <Reference Include="UnityEngine">
       <HintPath>libs\UnityEngine.dll</HintPath>
-    </Reference>
+    </Reference>    
     <Reference Include="UnityEngine.AudioModule">
       <HintPath>libs\UnityEngine.AudioModule.dll</HintPath>
     </Reference>

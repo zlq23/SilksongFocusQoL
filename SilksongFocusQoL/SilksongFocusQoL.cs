@@ -5,7 +5,7 @@ using System;
 using System.Collections;
 using System.Reflection;
 
-[BepInPlugin("com.zlq.silksongfocusqol", "Silksong Focus QoL", "1.0.0")]
+[BepInPlugin("com.zlq.silksongfocusqol", "Silksong Focus QoL", "1.0.1")]
 public class SilksongFocusQoL : BaseUnityPlugin
 {
     private GameObject focusQoLBehaviourObject;
@@ -18,6 +18,9 @@ public class SilksongFocusQoL : BaseUnityPlugin
 
     private void Awake()
     {
+        // Make sure configuration values are valid
+        ValidateConfig();
+
         // Bind config entries
         configEnableAutoMute = Config.Bind(
             "Settings",
@@ -50,18 +53,24 @@ public class SilksongFocusQoL : BaseUnityPlugin
             )
         );
 
-        // Subscribe to config changes
+        // Watch for changes in the configuration
         Config.SettingChanged += OnConfigChanged;
 
-        // Create the behaviour object
+        // Create the helper behaviour object
         focusQoLBehaviourObject = new GameObject("SilksongFocusQoLBehaviour", typeof(FocusQoLBehaviour));
         DontDestroyOnLoad(focusQoLBehaviourObject);
 
-        // Pass config to behaviour
+        // Pass config to the behaviour
         var behaviour = focusQoLBehaviourObject.GetComponent<FocusQoLBehaviour>();
         behaviour.SetConfig(configEnableAutoPause, configEnableAutoUnpause, configAutoUnpauseWindow, configEnableAutoMute);
 
         Logger.LogInfo("Silksong Focus QoL loaded");
+    }
+
+    private void ValidateConfig()
+    {
+        if (configAutoUnpauseWindow?.Value < 0)
+            configAutoUnpauseWindow.Value = 0;
     }
 
     private void OnConfigChanged(object sender, SettingChangedEventArgs e)
@@ -73,7 +82,6 @@ public class SilksongFocusQoL : BaseUnityPlugin
             var behaviour = focusQoLBehaviourObject?.GetComponent<FocusQoLBehaviour>();
             if (behaviour != null)
             {
-                // Reapply updated config entries
                 behaviour.SetConfig(configEnableAutoPause, configEnableAutoUnpause, configAutoUnpauseWindow, configEnableAutoMute);
             }
         }
@@ -83,19 +91,28 @@ public class SilksongFocusQoL : BaseUnityPlugin
         }
     }
 
+    private void OnDestroy()
+    {
+        Config.SettingChanged -= OnConfigChanged;
+
+        if (focusQoLBehaviourObject != null)
+            Destroy(focusQoLBehaviourObject);
+    }
+
     private class FocusQoLBehaviour : MonoBehaviour
     {
-        private bool wasPausedByMod = false;
-        private float focusLostTime = 0f;
-        private bool isTrackingTime = false;
-        private Coroutine timeoutCoroutine;
+        private bool wasPausedByMod = false;       // True only if WE successfully paused the game
+        private bool wasAlreadyPaused = false;     // True if game was paused before we lost focus
+        private float focusLostTime = 0f;          // Time when window lost focus
+        private bool isTrackingTime = false;       // True while waiting to auto-unpause
+        private Coroutine timeoutCoroutine;        // Tracks auto-unpause coroutine
+        private bool wantsToPause = false;         // True when we want to pause the game
 
         private ConfigEntry<bool> enableAutoPause;
         private ConfigEntry<bool> enableAutoUnpause;
         private ConfigEntry<float> autoUnpauseWindow;
         private ConfigEntry<bool> enableAutoMute;
 
-        // Cached reflection objects
         private Type gameManagerType;
         private PropertyInfo instanceProp;
         private MethodInfo isGamePausedMethod;
@@ -113,7 +130,12 @@ public class SilksongFocusQoL : BaseUnityPlugin
             this.autoUnpauseWindow = autoUnpauseWindow;
             this.enableAutoMute = enableAutoMute;
 
-            // Cache reflection objects
+            // Prepare reflection methods for pausing/unpausing
+            CacheGameManagerMethods();
+        }
+
+        private void CacheGameManagerMethods()
+        {
             gameManagerType = Type.GetType("GameManager") ?? FindTypeByName("GameManager");
             if (gameManagerType != null)
             {
@@ -127,34 +149,53 @@ public class SilksongFocusQoL : BaseUnityPlugin
             }
         }
 
+        private void Update()
+        {
+            // Keep trying to pause if we wanted to pause but the game wasn't ready yet
+            if (!wantsToPause) return;
+
+            if (!IsGamePaused())
+            {
+                AttemptToPauseGame();
+            }
+        }
+
         private void OnApplicationFocus(bool hasFocus)
         {
+            if (!isActiveAndEnabled) return;
+
             try
             {
                 if (!hasFocus)
                 {
                     focusLostTime = Time.unscaledTime;
 
+                    // Check if game was already paused before we lost focus
+                    wasAlreadyPaused = IsGamePaused();
+
                     if (enableAutoPause.Value)
-                        AttemptToPauseGame();
+                    {
+                        wantsToPause = true;
+
+                        // Only attempt to pause if the game wasn't already paused
+                        if (!wasAlreadyPaused)
+                        {
+                            AttemptToPauseGame();
+                        }
+                    }
 
                     if (enableAutoUnpause.Value && autoUnpauseWindow.Value > 0)
                     {
                         isTrackingTime = true;
-                        // Start timeout coroutine to auto-clear tracking
-                        if (timeoutCoroutine != null)
-                            StopCoroutine(timeoutCoroutine);
+                        StopTrackingCoroutine();
                         timeoutCoroutine = StartCoroutine(TimeoutTracking());
                     }
                 }
                 else
                 {
-                    // Stop timeout coroutine since we got focus back
-                    if (timeoutCoroutine != null)
-                    {
-                        StopCoroutine(timeoutCoroutine);
-                        timeoutCoroutine = null;
-                    }
+                    // Focus returned - stop pause attempts
+                    wantsToPause = false;
+                    StopTrackingCoroutine();
 
                     if (enableAutoUnpause.Value && wasPausedByMod)
                     {
@@ -166,11 +207,11 @@ public class SilksongFocusQoL : BaseUnityPlugin
                         {
                             AttemptToUnpauseGame();
                         }
-
-                        // Clear the flag regardless of whether we unpaused or not
-                        wasPausedByMod = false;
                     }
 
+                    // Reset tracking states
+                    wasPausedByMod = false;
+                    wasAlreadyPaused = false;
                     isTrackingTime = false;
                 }
 
@@ -179,7 +220,16 @@ public class SilksongFocusQoL : BaseUnityPlugin
             }
             catch (Exception)
             {
-                // Silent fail
+                // Fail silently
+            }
+        }
+
+        private void StopTrackingCoroutine()
+        {
+            if (timeoutCoroutine != null)
+            {
+                StopCoroutine(timeoutCoroutine);
+                timeoutCoroutine = null;
             }
         }
 
@@ -187,10 +237,26 @@ public class SilksongFocusQoL : BaseUnityPlugin
         {
             // Wait for the auto-unpause window to expire
             yield return new WaitForSecondsRealtime(autoUnpauseWindow.Value);
-
-            // Time window expired, clear tracking
             isTrackingTime = false;
             timeoutCoroutine = null;
+        }
+
+        private bool IsGamePaused()
+        {
+            try
+            {
+                if (gameManagerType == null || instanceProp == null || isGamePausedMethod == null)
+                    return false;
+
+                var instance = instanceProp.GetValue(null);
+                if (instance == null) return false;
+
+                return (bool)isGamePausedMethod.Invoke(instance, null);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private void AttemptToPauseGame()
@@ -202,14 +268,8 @@ public class SilksongFocusQoL : BaseUnityPlugin
                 var instance = instanceProp.GetValue(null);
                 if (instance == null) return;
 
-                bool isPaused = false;
-                if (isGamePausedMethod != null)
-                {
-                    try { isPaused = (bool)isGamePausedMethod.Invoke(instance, null); }
-                    catch { isPaused = false; }
-                }
-
-                if (!isPaused)
+                // Only pause if the game isn't already paused
+                if (!IsGamePaused())
                 {
                     object enumerator = null;
                     if (pauseMethodParameters.Length == 1 && pauseMethodParameters[0].ParameterType == typeof(bool))
@@ -217,14 +277,18 @@ public class SilksongFocusQoL : BaseUnityPlugin
                     else if (pauseMethodParameters.Length == 0)
                         enumerator = pauseGameToggle.Invoke(instance, null);
 
-                    if (enumerator != null)
+                    // Start the pause coroutine
+                    if (enumerator != null && enumerator is IEnumerator)
                     {
                         StartCoroutine((IEnumerator)enumerator);
-                        wasPausedByMod = true;
+                        wasPausedByMod = true; // Only set this if we actually paused the game
                     }
                 }
             }
-            catch { }
+            catch
+            {
+                // Fail silently
+            }
         }
 
         private void AttemptToUnpauseGame()
@@ -236,14 +300,8 @@ public class SilksongFocusQoL : BaseUnityPlugin
                 var instance = instanceProp.GetValue(null);
                 if (instance == null) return;
 
-                bool isPaused = false;
-                if (isGamePausedMethod != null)
-                {
-                    try { isPaused = (bool)isGamePausedMethod.Invoke(instance, null); }
-                    catch { isPaused = false; }
-                }
-
-                if (isPaused)
+                // Only unpause if currently paused AND we were the ones who paused it
+                if (IsGamePaused() && wasPausedByMod)
                 {
                     object enumerator = null;
                     if (pauseMethodParameters.Length == 1 && pauseMethodParameters[0].ParameterType == typeof(bool))
@@ -251,11 +309,14 @@ public class SilksongFocusQoL : BaseUnityPlugin
                     else if (pauseMethodParameters.Length == 0)
                         enumerator = pauseGameToggle.Invoke(instance, null);
 
-                    if (enumerator != null)
+                    if (enumerator != null && enumerator is IEnumerator)
                         StartCoroutine((IEnumerator)enumerator);
                 }
             }
-            catch { }
+            catch
+            {
+                // Fail silently
+            }
         }
 
         private Type FindTypeByName(string typeName)
@@ -273,6 +334,11 @@ public class SilksongFocusQoL : BaseUnityPlugin
                 catch (ReflectionTypeLoadException) { continue; }
             }
             return null;
+        }
+
+        private void OnDisable()
+        {
+            StopTrackingCoroutine();
         }
     }
 }
