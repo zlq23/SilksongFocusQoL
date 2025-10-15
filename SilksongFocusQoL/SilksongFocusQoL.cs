@@ -1,4 +1,4 @@
-﻿﻿using BepInEx;
+﻿using BepInEx;
 using BepInEx.Configuration;
 using UnityEngine;
 using System;
