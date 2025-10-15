@@ -1,4 +1,4 @@
-﻿using BepInEx;
+﻿﻿using BepInEx;
 using BepInEx.Configuration;
 using UnityEngine;
 using System;
@@ -75,7 +75,7 @@ public class SilksongFocusQoL : BaseUnityPlugin
             {
                 behaviour.SetConfig(configEnableAutoPause, configEnableAutoUnpause, configAutoUnpauseWindow, configEnableAutoMute);
             }
-        }a
+        }
         catch (Exception ex)
         {
             Logger.LogError($"Error applying config change: {ex}");
