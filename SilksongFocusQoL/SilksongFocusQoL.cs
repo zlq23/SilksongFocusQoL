@@ -18,9 +18,6 @@ public class SilksongFocusQoL : BaseUnityPlugin
 
     private void Awake()
     {
-        // Make sure configuration values are valid
-        ValidateConfig();
-
         // Bind config entries
         configEnableAutoMute = Config.Bind(
             "Settings",
@@ -67,12 +64,6 @@ public class SilksongFocusQoL : BaseUnityPlugin
         Logger.LogInfo("Silksong Focus QoL loaded");
     }
 
-    private void ValidateConfig()
-    {
-        if (configAutoUnpauseWindow?.Value < 0)
-            configAutoUnpauseWindow.Value = 0;
-    }
-
     private void OnConfigChanged(object sender, SettingChangedEventArgs e)
     {
         try
@@ -84,7 +75,7 @@ public class SilksongFocusQoL : BaseUnityPlugin
             {
                 behaviour.SetConfig(configEnableAutoPause, configEnableAutoUnpause, configAutoUnpauseWindow, configEnableAutoMute);
             }
-        }
+        }a
         catch (Exception ex)
         {
             Logger.LogError($"Error applying config change: {ex}");
